@@ -23,6 +23,10 @@ import (
 const (
 	name    = "soonest-reset"
 	version = "0.1.0"
+	// The host refuses a plugin whose metadata has no author or repository.
+	// Set repository to the public repo's URL before release.
+	author     = "cpa-soonest-reset contributors"
+	repository = "https://github.com/OWNER/cpa-soonest-reset"
 
 	defaultRetestMinutes = 60
 )
@@ -166,8 +170,8 @@ func registration() registrationResult {
 		Metadata: pluginapi.Metadata{
 			Name:             name,
 			Version:          version,
-			Author:           "rawphp",
-			GitHubRepository: "https://github.com/rawphp/cpa-soonest-reset-plugin",
+			Author:           author,
+			GitHubRepository: repository,
 			ConfigFields: []pluginapi.ConfigField{
 				{
 					Name:        "retest_minutes",
