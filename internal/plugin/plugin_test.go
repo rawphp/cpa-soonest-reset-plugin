@@ -264,8 +264,8 @@ func TestRegisterDeclaresSchedulerAcrossPrioritiesAndUsage(t *testing.T) {
 	}
 	// The host refuses a plugin whose metadata lacks any of these.
 	m := reg.Metadata
-	if m.Name != "soonest-reset" || m.Version == "" || m.Author == "" || m.GitHubRepository == "" {
-		t.Errorf("metadata = %+v; want name soonest-reset and version, author, repository set", m)
+	if m.Name != "soonest-reset" || m.Version == "" || m.Author != "rawphp" || m.GitHubRepository != "https://github.com/rawphp/cpa-soonest-reset-plugin" {
+		t.Errorf("metadata = %+v; want soonest-reset by rawphp, its repository and a version", m)
 	}
 }
 

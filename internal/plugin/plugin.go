@@ -24,9 +24,8 @@ const (
 	name    = "soonest-reset"
 	version = "0.1.0"
 	// The host refuses a plugin whose metadata has no author or repository.
-	// Set repository to the public repo's URL before release.
-	author     = "cpa-soonest-reset contributors"
-	repository = "https://github.com/OWNER/cpa-soonest-reset"
+	author     = "rawphp"
+	repository = "https://github.com/rawphp/cpa-soonest-reset-plugin"
 
 	defaultRetestMinutes = 60
 )
