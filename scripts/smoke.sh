@@ -7,12 +7,22 @@
 # removed afterwards (KEEP=1 keeps it). Upstream traffic goes to
 # scripts/fake_upstream.py; no real credentials are used.
 #
-#   CPA_SRC      gateway source (default /path/to/CLIProxyAPI-8.0.51)
-#   GATEWAY_BIN  use this gateway binary instead of building one
+#   CPA_SRC      directory of the CLIProxyAPI v8.0.51 source; required unless GATEWAY_BIN is set
+#   GATEWAY_BIN  use this gateway binary instead of building one from CPA_SRC
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
-src=${CPA_SRC:-/path/to/CLIProxyAPI-8.0.51}
+src=${CPA_SRC:-}
+if [[ -z ${GATEWAY_BIN:-} ]]; then
+	if [[ -z $src ]]; then
+		echo "smoke.sh: set CPA_SRC to the CLIProxyAPI v8.0.51 source directory, or GATEWAY_BIN to a built gateway" >&2
+		exit 2
+	fi
+	if [[ ! -f $src/go.mod || ! -d $src/cmd/server ]]; then
+		echo "smoke.sh: CPA_SRC=$src does not look like the CLIProxyAPI source (no go.mod or cmd/server)" >&2
+		exit 2
+	fi
+fi
 work=$(mktemp -d "${TMPDIR:-/tmp}/soonest-reset-smoke.XXXXXX")
 pids=()
 
