@@ -199,7 +199,7 @@ func TestProbeFlagOverridesAPendingProbe(t *testing.T) {
 	s := New()
 	var seen View
 	s.Pick([]string{"acct-a@example.test"}, now, pickFirst("acct-a@example.test", &seen)) // pending, never answers
-	s.Observe("acct-a@example.test", nextWeek, true)                                     // a later 429 answers it
+	s.Observe("acct-a@example.test", nextWeek, true)                                      // a later 429 answers it
 	s.Retest("acct-a@example.test")
 
 	if v := s.View("acct-a@example.test", now); !v.Due {
