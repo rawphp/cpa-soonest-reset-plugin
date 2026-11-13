@@ -5,6 +5,7 @@ package plugin
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -92,17 +93,18 @@ func (p *Plugin) Tick() {
 		return
 	}
 	result := retest.Pass(p.host, p.store)
+	// The gateway's log formatter prints only fields it knows, so the facts go in the message.
+	message := fmt.Sprintf("%s: retest reset=%d probe=[%s]", name, len(result.Reset), strings.Join(result.Marked, " "))
 	level := "info"
-	fields := map[string]any{"reset": len(result.Reset), "probe": result.Marked}
 	if len(result.Errors) > 0 {
 		level = "warn"
 		errs := make([]string, 0, len(result.Errors))
 		for _, err := range result.Errors {
 			errs = append(errs, err.Error())
 		}
-		fields["errors"] = errs
+		message += " errors=" + strings.Join(errs, "; ")
 	}
-	_ = p.host.Log(level, name+": retest", fields)
+	_ = p.host.Log(level, message, nil)
 }
 
 // Shutdown stops the retest ticker. It is safe to call more than once.
@@ -222,12 +224,8 @@ func (p *Plugin) pick(request []byte) []byte {
 		if !choice.Reset7d.IsZero() {
 			reset = choice.Reset7d.UTC().Format(time.RFC3339)
 		}
-		_ = p.host.Log("info", name+": pick", map[string]any{
-			"account":  chosen,
-			"rule":     string(choice.Rule),
-			"reset_7d": reset,
-			"model":    req.Model,
-		})
+		_ = p.host.Log("info", fmt.Sprintf("%s: pick account=%s rule=%s reset_7d=%s model=%s",
+			name, chosen, choice.Rule, reset, req.Model), nil)
 	}
 	return okEnvelope(pluginapi.SchedulerPickResponse{AuthID: chosen, Handled: true})
 }

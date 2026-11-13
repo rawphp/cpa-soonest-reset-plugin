@@ -104,12 +104,13 @@ func (h *fakeHost) listCount() int {
 	return h.lists
 }
 
-func (h *fakeHost) logsWith(message string) []logLine {
+// logsWith returns the log lines whose message starts with prefix.
+func (h *fakeHost) logsWith(prefix string) []logLine {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	var out []logLine
 	for _, l := range h.logs {
-		if l.message == message {
+		if strings.HasPrefix(l.message, prefix) {
 			out = append(out, l)
 		}
 	}
@@ -327,9 +328,10 @@ func TestPickLogsTheAccountRuleAndReset(t *testing.T) {
 	if len(logs) != 1 {
 		t.Fatalf("pick logs = %+v; want one", logs)
 	}
-	f := logs[0].fields
-	if logs[0].level != "info" || f["account"] != acctB || f["rule"] != "soonest-reset" || f["reset_7d"] != "2026-11-18T00:00:00Z" || f["model"] != "claude-opus-4-5" {
-		t.Fatalf("pick log = %+v", logs[0])
+	// The gateway's log formatter prints only fields it knows, so the facts are in the message.
+	want := "soonest-reset: pick account=" + acctB + " rule=soonest-reset reset_7d=2026-11-18T00:00:00Z model=claude-opus-4-5"
+	if logs[0].level != "info" || logs[0].message != want {
+		t.Fatalf("pick log = %+v; want info %q", logs[0], want)
 	}
 }
 
@@ -340,7 +342,7 @@ func TestPickLogSaysNoneForAnUnknownReset(t *testing.T) {
 	pickedID(t, p, pickRequest(t))
 
 	logs := host.logsWith("soonest-reset: pick")
-	if len(logs) != 1 || logs[0].fields["rule"] != "probe" || logs[0].fields["reset_7d"] != "none" {
+	if len(logs) != 1 || !strings.Contains(logs[0].message, " rule=probe reset_7d=none ") {
 		t.Fatalf("pick logs = %+v; want one probe with reset none", logs)
 	}
 }
@@ -429,8 +431,8 @@ func TestARecordWithoutTheHeaderStillCountsAsObserved(t *testing.T) {
 		t.Fatalf("pick logs = %+v; want three", logs)
 	}
 	for _, l := range logs[1:] {
-		if l.fields["rule"] != "soonest-reset" {
-			t.Fatalf("pick after a header-less answer used rule %v; want soonest-reset, not another probe", l.fields["rule"])
+		if !strings.Contains(l.message, " rule=soonest-reset ") {
+			t.Fatalf("pick after a header-less answer logged %q; want rule soonest-reset, not another probe", l.message)
 		}
 	}
 }
@@ -459,7 +461,7 @@ func TestRetestRunsOnlyAfterTheIntervalAndProbesThe429dAccount(t *testing.T) {
 		t.Fatalf("picked %q on the next request; want %q by soonest reset", got, acctA)
 	}
 	logs := host.logsWith("soonest-reset: retest")
-	if len(logs) != 1 || logs[0].fields["reset"] != 2 || !slices.Equal(logs[0].fields["probe"].([]string), []string{acctB}) {
+	if len(logs) != 1 || logs[0].level != "info" || logs[0].message != "soonest-reset: retest reset=2 probe=["+acctB+"]" {
 		t.Fatalf("retest logs = %+v", logs)
 	}
 }
@@ -638,7 +640,7 @@ func TestRetestErrorsAreLoggedAsAWarning(t *testing.T) {
 	p.Tick()
 
 	logs := host.logsWith("soonest-reset: retest")
-	if len(logs) != 1 || logs[0].level != "warn" || len(logs[0].fields["errors"].([]string)) != 2 || logs[0].fields["reset"] != 0 {
+	if len(logs) != 1 || logs[0].level != "warn" || !strings.HasPrefix(logs[0].message, "soonest-reset: retest reset=0 probe=[] errors=reset "+acctA+": auth not found; reset "+acctB+": auth not found") {
 		t.Fatalf("retest logs = %+v; want one warning with both errors", logs)
 	}
 }
