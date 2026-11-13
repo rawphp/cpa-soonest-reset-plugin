@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"cpa-soonest-reset/internal/pick"
+	"github.com/rawphp/cpa-soonest-reset-plugin/internal/pick"
 )
 
 // Auth is one credential from host.auth.list. Scheduler candidates and usage

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"cpa-soonest-reset/internal/retest"
+	"github.com/rawphp/cpa-soonest-reset-plugin/internal/retest"
 )
 
 // The files in testdata are json.Marshal output of the gateway's own v8.0.51

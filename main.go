@@ -65,7 +65,7 @@ import (
 	"time"
 	"unsafe"
 
-	"cpa-soonest-reset/internal/plugin"
+	"github.com/rawphp/cpa-soonest-reset-plugin/internal/plugin"
 
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/pluginabi"
 )

@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"cpa-soonest-reset/internal/retest"
+	"github.com/rawphp/cpa-soonest-reset-plugin/internal/retest"
 
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/pluginabi"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/pluginapi"

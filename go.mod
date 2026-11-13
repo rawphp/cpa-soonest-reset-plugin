@@ -1,4 +1,4 @@
-module cpa-soonest-reset
+module github.com/rawphp/cpa-soonest-reset-plugin
 
 go 1.26.10
 

@@ -10,10 +10,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"cpa-soonest-reset/internal/pick"
-	"cpa-soonest-reset/internal/quota"
-	"cpa-soonest-reset/internal/retest"
-	"cpa-soonest-reset/internal/state"
+	"github.com/rawphp/cpa-soonest-reset-plugin/internal/pick"
+	"github.com/rawphp/cpa-soonest-reset-plugin/internal/quota"
+	"github.com/rawphp/cpa-soonest-reset-plugin/internal/retest"
+	"github.com/rawphp/cpa-soonest-reset-plugin/internal/state"
 
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/pluginabi"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/pluginapi"
