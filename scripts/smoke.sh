@@ -18,6 +18,10 @@ if [[ -z ${GATEWAY_BIN:-} ]]; then
 		echo "smoke.sh: set CPA_SRC to the CLIProxyAPI v8.0.51 source directory, or GATEWAY_BIN to a built gateway" >&2
 		exit 2
 	fi
+	if [[ ! -d $src ]]; then
+		echo "smoke.sh: CPA_SRC=$src is not a directory" >&2
+		exit 2
+	fi
 	if [[ ! -f $src/go.mod || ! -d $src/cmd/server ]]; then
 		echo "smoke.sh: CPA_SRC=$src does not look like the CLIProxyAPI source (no go.mod or cmd/server)" >&2
 		exit 2
@@ -110,7 +114,7 @@ plugins:
     soonest-reset:
       enabled: true
       priority: 1
-      retest_minutes: 1
+      retest_minutes: 60
       log_picks: true
 YAML
 
@@ -172,16 +176,17 @@ sys.exit(0 if json.loads(sys.argv[1])[4:] == ["sk-smoke-b", "sk-smoke-a", "sk-sm
 PY
 pass "a 429 fails over to the next account, and the cooled account is skipped"
 
-# 4. The ticker runs a retest within two minutes of registration and resets
-#    the Claude OAuth account through host.auth.list and host.routing.reset_cooldown.
-echo "waiting for the retest (up to 150s)"
-for _ in $(seq 150); do
+# 4. The first retest runs at the ticker's first tick, a minute after
+#    registration, though retest_minutes is 60. It resets the Claude OAuth
+#    account through host.auth.list and host.routing.reset_cooldown.
+echo "waiting for the first retest (up to 90s)"
+for _ in $(seq 90); do
 	grep -q "soonest-reset: retest" "$work/gateway.log" && break
 	sleep 1
 done
 grep -q "soonest-reset: retest reset=1 probe=\[\]$" "$work/gateway.log" || fail "no clean retest line: $(grep -o 'soonest-reset: retest.*' "$work/gateway.log" || true)"
 grep -q "pluginhost: plugin reset credential cooldown plugin_id=soonest-reset" "$work/gateway.log" || fail "the gateway did not log the cooldown reset"
-pass "retest reset the Claude OAuth account from the ticker"
+pass "the first retest ran at startup and reset the Claude OAuth account"
 
 if grep -Eiq "fused|panic" "$work/gateway.log"; then fail "the gateway log mentions a panic or a fused plugin"; fi
 pass "no panic and no fused plugin"
