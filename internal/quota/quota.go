@@ -15,17 +15,18 @@ const WeeklyResetHeader = "Anthropic-Ratelimit-Unified-7d-Reset"
 // It is far past any real reset time (the year 5138).
 const maxUnixSeconds = 1e11
 
-// WeeklyReset returns the weekly reset time from headers. The value is a Unix
-// timestamp in seconds or an RFC 3339 time. A missing, unparseable or
-// not-in-the-future value gives no reset.
-func WeeklyReset(headers map[string][]string, now time.Time) (time.Time, bool) {
+// WeeklyReset returns the weekly reset time from headers and whether the header
+// was present. The value is a Unix timestamp in seconds or an RFC 3339 time.
+// A missing or empty header is not present and gives a zero time. A present
+// value that does not parse, or is not in the future, gives a zero time.
+func WeeklyReset(headers map[string][]string, now time.Time) (reset time.Time, present bool) {
 	raw := strings.TrimSpace(headerValue(headers, WeeklyResetHeader))
 	if raw == "" {
 		return time.Time{}, false
 	}
 	reset, ok := parseTime(raw)
 	if !ok || !reset.After(now) {
-		return time.Time{}, false
+		return time.Time{}, true
 	}
 	return reset, true
 }
