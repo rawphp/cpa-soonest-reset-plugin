@@ -105,11 +105,14 @@ func TestAListErrorEndsThePass(t *testing.T) {
 	}
 }
 
-func TestScheduleRunsOnlyAfterTheInterval(t *testing.T) {
-	s := NewSchedule(start, time.Hour)
+func TestScheduleRunsAtOnceThenOncePerInterval(t *testing.T) {
+	s := NewSchedule(time.Hour)
 
+	if !s.Due(start) {
+		t.Fatal("first pass not due at once")
+	}
 	if s.Due(start) || s.Due(start.Add(59*time.Minute)) {
-		t.Fatal("due before the interval passed")
+		t.Fatal("due again before the interval passed")
 	}
 	if !s.Due(start.Add(time.Hour)) {
 		t.Fatal("not due once the interval passed")
@@ -123,7 +126,7 @@ func TestScheduleRunsOnlyAfterTheInterval(t *testing.T) {
 }
 
 func TestScheduleWithIntervalZeroNeverRuns(t *testing.T) {
-	s := NewSchedule(start, 0)
+	s := NewSchedule(0)
 
 	for _, at := range []time.Time{start, start.Add(time.Hour), start.Add(365 * 24 * time.Hour)} {
 		if s.Due(at) {
@@ -133,15 +136,27 @@ func TestScheduleWithIntervalZeroNeverRuns(t *testing.T) {
 }
 
 func TestScheduleWithANegativeIntervalNeverRuns(t *testing.T) {
-	s := NewSchedule(start, -time.Minute)
+	s := NewSchedule(-time.Minute)
 
-	if s.Due(start.Add(time.Hour)) {
+	if s.Due(start) || s.Due(start.Add(time.Hour)) {
 		t.Fatal("negative interval was due")
 	}
 }
 
+func TestTurningTheIntervalOnLaterRunsAtOnce(t *testing.T) {
+	s := NewSchedule(0)
+	s.Due(start)
+
+	s.SetInterval(time.Hour)
+
+	if !s.Due(start.Add(time.Minute)) {
+		t.Fatal("first pass not due once an interval was set")
+	}
+}
+
 func TestSetIntervalKeepsTheLastRun(t *testing.T) {
-	s := NewSchedule(start, time.Hour)
+	s := NewSchedule(time.Hour)
+	s.Due(start)
 
 	s.SetInterval(2 * time.Hour)
 	if s.Due(start.Add(time.Hour)) {
@@ -158,13 +173,13 @@ func TestSetIntervalKeepsTheLastRun(t *testing.T) {
 }
 
 func TestOnlyOneConcurrentCallerGetsTheRun(t *testing.T) {
-	s := NewSchedule(start, time.Hour)
+	s := NewSchedule(time.Hour)
 	var mu sync.Mutex
 	runs := 0
 	var wg sync.WaitGroup
 	for range 32 {
 		wg.Go(func() {
-			if s.Due(start.Add(time.Hour)) {
+			if s.Due(start) {
 				mu.Lock()
 				runs++
 				mu.Unlock()

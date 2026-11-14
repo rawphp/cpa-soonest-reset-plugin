@@ -64,17 +64,18 @@ func Pass(host Host, marker Marker) Result {
 	return result
 }
 
-// Schedule says when a pass is due: once per interval, counted from start.
-// An interval of zero or less turns passes off. It is safe for concurrent use.
+// Schedule says when a pass is due: at once, then once per interval. An
+// interval of zero or less turns passes off. It is safe for concurrent use.
 type Schedule struct {
 	mu       sync.Mutex
 	interval time.Duration
+	ran      bool
 	last     time.Time
 }
 
-// NewSchedule returns a schedule whose first pass is due one interval after start.
-func NewSchedule(start time.Time, interval time.Duration) *Schedule {
-	return &Schedule{interval: interval, last: start}
+// NewSchedule returns a schedule whose first pass is due straight away.
+func NewSchedule(interval time.Duration) *Schedule {
+	return &Schedule{interval: interval}
 }
 
 // SetInterval changes the interval and keeps the time of the last pass.
@@ -89,9 +90,10 @@ func (s *Schedule) SetInterval(interval time.Duration) {
 func (s *Schedule) Due(now time.Time) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.interval <= 0 || now.Sub(s.last) < s.interval {
+	if s.interval <= 0 || (s.ran && now.Sub(s.last) < s.interval) {
 		return false
 	}
+	s.ran = true
 	s.last = now
 	return true
 }

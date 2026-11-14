@@ -57,7 +57,7 @@ func New(host Host, now func() time.Time, tickEvery time.Duration) *Plugin {
 		now:       now,
 		tickEvery: tickEvery,
 		store:     state.New(),
-		schedule:  retest.NewSchedule(now(), defaultRetestMinutes*time.Minute),
+		schedule:  retest.NewSchedule(defaultRetestMinutes * time.Minute),
 	}
 	p.cfg.Store(&config{RetestMinutes: defaultRetestMinutes, LogPicks: true})
 	return p

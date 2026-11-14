@@ -437,20 +437,14 @@ func TestARecordWithoutTheHeaderStillCountsAsObserved(t *testing.T) {
 	}
 }
 
-func TestRetestRunsOnlyAfterTheIntervalAndProbesThe429dAccount(t *testing.T) {
-	p, host, c := newPlugin(t)
+func TestRetestResetsEveryClaudeAccountAndProbesThe429dAccount(t *testing.T) {
+	p, host, _ := newPlugin(t)
 	register(t, p, "retest_minutes: 60\n")
 	usage(t, p, acctA, wednesday, 0)
 	usage(t, p, acctB, friday, 429)
 
-	c.advance(59 * time.Minute)
 	p.Tick()
-	if host.listCount() != 0 {
-		t.Fatal("retest ran before the interval passed")
-	}
 
-	c.advance(time.Minute)
-	p.Tick()
 	if !slices.Equal(host.resets, []string{"1", "2"}) {
 		t.Fatalf("reset auth indexes %v; want both Claude accounts", host.resets)
 	}
@@ -466,10 +460,33 @@ func TestRetestRunsOnlyAfterTheIntervalAndProbesThe429dAccount(t *testing.T) {
 	}
 }
 
+func TestTheFirstRetestRunsAtTheFirstTickThenOncePerInterval(t *testing.T) {
+	p, host, c := newPlugin(t)
+	register(t, p, "retest_minutes: 60\n")
+
+	p.Tick()
+	p.Tick()
+	if host.listCount() != 1 {
+		t.Fatalf("%d passes at the first ticks after register; want exactly 1", host.listCount())
+	}
+
+	c.advance(59 * time.Minute)
+	p.Tick()
+	if host.listCount() != 1 {
+		t.Fatal("a second pass ran before the interval passed")
+	}
+	c.advance(time.Minute)
+	p.Tick()
+	if host.listCount() != 2 {
+		t.Fatal("the second pass did not run one interval after the first")
+	}
+}
+
 func TestRetestMinutesZeroNeverRuns(t *testing.T) {
 	p, host, c := newPlugin(t)
 	register(t, p, "retest_minutes: 0\n")
 
+	p.Tick()
 	c.advance(1000 * time.Hour)
 	p.Tick()
 
@@ -482,15 +499,16 @@ func TestDefaultsAreSixtyMinutesAndLoggedPicks(t *testing.T) {
 	p, host, c := newPlugin(t)
 	register(t, p, "enabled: true\npriority: 1\n")
 
+	p.Tick()
 	c.advance(59 * time.Minute)
 	p.Tick()
-	if host.listCount() != 0 {
-		t.Fatal("default retest ran before 60 minutes")
+	if host.listCount() != 1 {
+		t.Fatal("default retest ran again before 60 minutes")
 	}
 	c.advance(time.Minute)
 	p.Tick()
-	if host.listCount() != 1 {
-		t.Fatal("default retest did not run at 60 minutes")
+	if host.listCount() != 2 {
+		t.Fatal("default retest did not run again at 60 minutes")
 	}
 	pickedID(t, p, pickRequest(t))
 	if len(host.logsWith("soonest-reset: pick")) != 1 {
@@ -504,11 +522,11 @@ func TestTheTickerRunsTheRetestAndStopsAtShutdown(t *testing.T) {
 	p := New(host, c.now, time.Millisecond)
 	register(t, p, "retest_minutes: 1\n")
 
-	c.advance(time.Minute)
+	// No clock advance: the first pass is due as soon as the plugin registers.
 	select {
 	case <-host.listed:
 	case <-time.After(5 * time.Second):
-		t.Fatal("the ticker did not run the retest")
+		t.Fatal("the ticker did not run the first retest")
 	}
 
 	p.Shutdown()
@@ -527,11 +545,17 @@ func TestQuiesceStopsTheTickerAndReconfigureRestartsIt(t *testing.T) {
 	p := New(host, c.now, time.Millisecond)
 	t.Cleanup(p.Shutdown)
 	register(t, p, "retest_minutes: 1\n")
+	select {
+	case <-host.listed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the ticker did not run the first retest")
+	}
 
 	mustOK(t, p.Handle(pluginabi.MethodPluginQuiesce, []byte(`{}`)))
+	before := host.listCount()
 	c.advance(time.Hour)
 	time.Sleep(50 * time.Millisecond)
-	if host.listCount() != 0 {
+	if host.listCount() != before {
 		t.Fatal("the ticker ran after quiesce")
 	}
 
