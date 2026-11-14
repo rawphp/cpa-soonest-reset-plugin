@@ -206,8 +206,8 @@ func (p *Plugin) pick(request []byte) []byte {
 	if len(ids) == 0 {
 		return unhandled()
 	}
-	var choice pick.Choice
-	chosen := p.store.Pick(ids, p.now(), func(views map[string]state.View) string {
+	now := p.now()
+	choose := func(views map[string]state.View, probe bool) pick.Choice {
 		offered := make([]pick.Candidate, 0, len(ids))
 		for _, id := range ids {
 			c := candidates[id]
@@ -216,12 +216,28 @@ func (p *Plugin) pick(request []byte) []byte {
 				Provider: c.Provider,
 				Priority: c.Priority,
 				Reset7d:  views[id].Reset7d,
-				Due:      views[id].Due,
+				Due:      probe && views[id].Due,
 			})
 		}
-		choice, _ = pick.Choose(offered)
-		return choice.ID
-	})
+		choice, _ := pick.Choose(offered)
+		return choice
+	}
+	var choice pick.Choice
+	var chosen string
+	if isTokenCount(req) {
+		// No usage record follows a token count, so it must not use up a probe.
+		views := make(map[string]state.View, len(ids))
+		for _, id := range ids {
+			views[id] = p.store.View(id, now)
+		}
+		choice = choose(views, false)
+		chosen = choice.ID
+	} else {
+		chosen = p.store.Pick(ids, now, func(views map[string]state.View) string {
+			choice = choose(views, true)
+			return choice.ID
+		})
+	}
 	if p.cfg.Load().LogPicks {
 		reset := "none"
 		if !choice.Reset7d.IsZero() {
@@ -233,15 +249,30 @@ func (p *Plugin) pick(request []byte) []byte {
 	return okEnvelope(pluginapi.SchedulerPickResponse{AuthID: chosen, Handled: true})
 }
 
+// tokenCountPath is the gateway's only token-count route that reaches Claude
+// accounts with its own path. The gateway runs it through account selection but
+// publishes no usage record for it.
+const tokenCountPath = "/v1/messages/count_tokens"
+
+// isTokenCount reports whether the pick is for a token count. The gateway sets
+// request_path from the HTTP route on every proxied request.
+func isTokenCount(req pluginapi.SchedulerPickRequest) bool {
+	path, _ := req.Options.Metadata["request_path"].(string)
+	return path == tokenCountPath
+}
+
 func (p *Plugin) usage(request []byte) []byte {
 	var rec pluginapi.UsageRecord
 	if err := json.Unmarshal(request, &rec); err != nil {
 		return errorEnvelope("invalid_request", "decode usage record: "+err.Error())
 	}
 	if pick.IsClaude(rec.Provider) && rec.AuthID != "" {
-		reset, _ := quota.WeeklyReset(rec.ResponseHeaders, p.now())
-		rateLimited := rec.Failed && rec.Failure.StatusCode == 429
-		p.store.Observe(rec.AuthID, reset, rateLimited)
+		reset, present := quota.WeeklyReset(rec.ResponseHeaders, p.now())
+		p.store.Observe(rec.AuthID, state.Answer{
+			ResetHeader: present,
+			Reset7d:     reset,
+			RateLimited: rec.Failed && rec.Failure.StatusCode == 429,
+		})
 	}
 	return okEnvelope(struct{}{})
 }

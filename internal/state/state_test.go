@@ -13,6 +13,14 @@ var (
 	nextWeek = now.Add(4 * 24 * time.Hour)
 )
 
+func withReset(reset time.Time) Answer {
+	return Answer{ResetHeader: true, Reset7d: reset}
+}
+
+func rateLimitedWith(reset time.Time) Answer {
+	return Answer{ResetHeader: true, Reset7d: reset, RateLimited: true}
+}
+
 // pickFirst chooses the first id it is given and reports what it saw.
 func pickFirst(id string, seen *View) func(map[string]View) string {
 	return func(views map[string]View) string {
@@ -32,20 +40,20 @@ func TestUnknownAccountIsDue(t *testing.T) {
 func TestObserveStoresAndClearsTheWeeklyReset(t *testing.T) {
 	s := New()
 
-	s.Observe("acct-a@example.test", nextWeek, false)
+	s.Observe("acct-a@example.test", withReset(nextWeek))
 	if v := s.View("acct-a@example.test", now); v.Due || !v.Reset7d.Equal(nextWeek) {
 		t.Fatalf("after observing a reset: View = %+v; want not due, reset %v", v, nextWeek)
 	}
 
-	s.Observe("acct-a@example.test", time.Time{}, false)
+	s.Observe("acct-a@example.test", Answer{ResetHeader: true})
 	if v := s.View("acct-a@example.test", now); v.Due || !v.Reset7d.IsZero() {
-		t.Fatalf("after observing no reset: View = %+v; want not due, no reset", v)
+		t.Fatalf("after a header with no usable reset: View = %+v; want not due, no reset", v)
 	}
 }
 
 func TestAPassedWeeklyResetMakesTheAccountDueAgain(t *testing.T) {
 	s := New()
-	s.Observe("acct-a@example.test", nextWeek, false)
+	s.Observe("acct-a@example.test", withReset(nextWeek))
 
 	if v := s.View("acct-a@example.test", nextWeek.Add(-time.Second)); v.Due {
 		t.Fatal("due before the reset passed")
@@ -75,7 +83,7 @@ func TestPickingADueAccountMarksItPendingUntilItAnswers(t *testing.T) {
 		t.Fatal("second pick saw the pending account as due")
 	}
 
-	s.Observe("acct-a@example.test", nextWeek, false)
+	s.Observe("acct-a@example.test", withReset(nextWeek))
 	if v := s.View("acct-a@example.test", now); v.Due || !v.Reset7d.Equal(nextWeek) {
 		t.Fatalf("after the answer: View = %+v; want not due, reset %v", v, nextWeek)
 	}
@@ -83,7 +91,7 @@ func TestPickingADueAccountMarksItPendingUntilItAnswers(t *testing.T) {
 
 func TestPickingAPassedResetAccountProbesItOnce(t *testing.T) {
 	s := New()
-	s.Observe("acct-a@example.test", nextWeek, false)
+	s.Observe("acct-a@example.test", withReset(nextWeek))
 	later := nextWeek.Add(time.Minute)
 	var seen View
 
@@ -99,7 +107,7 @@ func TestPickingAPassedResetAccountProbesItOnce(t *testing.T) {
 
 func TestPickOnlyOffersTheGivenIDs(t *testing.T) {
 	s := New()
-	s.Observe("acct-a@example.test", nextWeek, false)
+	s.Observe("acct-a@example.test", withReset(nextWeek))
 
 	s.Pick([]string{"acct-b@example.test"}, now, func(views map[string]View) string {
 		if len(views) != 1 {
@@ -128,7 +136,7 @@ func TestPickingNothingOrAnUnknownIDChangesNothing(t *testing.T) {
 
 func TestPickingAnAccountThatIsNotDueLeavesItAlone(t *testing.T) {
 	s := New()
-	s.Observe("acct-a@example.test", nextWeek, false)
+	s.Observe("acct-a@example.test", withReset(nextWeek))
 	var seen View
 
 	s.Pick([]string{"acct-a@example.test"}, now, pickFirst("acct-a@example.test", &seen))
@@ -141,7 +149,7 @@ func TestPickingAnAccountThatIsNotDueLeavesItAlone(t *testing.T) {
 
 func TestRetestMarksAnAccountWhoseLastAnswerWasA429(t *testing.T) {
 	s := New()
-	s.Observe("acct-a@example.test", nextWeek, true)
+	s.Observe("acct-a@example.test", rateLimitedWith(nextWeek))
 
 	if !s.Retest("acct-a@example.test") {
 		t.Fatal("Retest = false for an account whose last answer was a 429")
@@ -156,7 +164,7 @@ func TestRetestMarksAnAccountWhoseLastAnswerWasA429(t *testing.T) {
 
 func TestRetestLeavesOtherAccountsAlone(t *testing.T) {
 	s := New()
-	s.Observe("acct-a@example.test", nextWeek, false)
+	s.Observe("acct-a@example.test", withReset(nextWeek))
 
 	if s.Retest("acct-a@example.test") {
 		t.Fatal("Retest = true for an account that answered without a 429")
@@ -171,8 +179,8 @@ func TestRetestLeavesOtherAccountsAlone(t *testing.T) {
 
 func TestASuccessAfterA429ClearsTheRetestMark(t *testing.T) {
 	s := New()
-	s.Observe("acct-a@example.test", nextWeek, true)
-	s.Observe("acct-a@example.test", nextWeek, false)
+	s.Observe("acct-a@example.test", rateLimitedWith(nextWeek))
+	s.Observe("acct-a@example.test", withReset(nextWeek))
 
 	if s.Retest("acct-a@example.test") {
 		t.Fatal("Retest = true though the last answer was not a 429")
@@ -181,7 +189,7 @@ func TestASuccessAfterA429ClearsTheRetestMark(t *testing.T) {
 
 func TestProbeFlagSetsOnRetestAndClearsOnPick(t *testing.T) {
 	s := New()
-	s.Observe("acct-a@example.test", nextWeek, true)
+	s.Observe("acct-a@example.test", rateLimitedWith(nextWeek))
 	s.Retest("acct-a@example.test")
 	var seen View
 
@@ -199,7 +207,7 @@ func TestProbeFlagOverridesAPendingProbe(t *testing.T) {
 	s := New()
 	var seen View
 	s.Pick([]string{"acct-a@example.test"}, now, pickFirst("acct-a@example.test", &seen)) // pending, never answers
-	s.Observe("acct-a@example.test", nextWeek, true)                                      // a later 429 answers it
+	s.Observe("acct-a@example.test", rateLimitedWith(nextWeek))                           // a later 429 answers it
 	s.Retest("acct-a@example.test")
 
 	if v := s.View("acct-a@example.test", now); !v.Due {
@@ -237,7 +245,7 @@ func TestConcurrentUse(t *testing.T) {
 			for j := range 100 {
 				switch j % 4 {
 				case 0:
-					s.Observe(id, nextWeek, j%8 == 0)
+					s.Observe(id, Answer{ResetHeader: true, Reset7d: nextWeek, RateLimited: j%8 == 0})
 				case 1:
 					s.Pick([]string{id, "acct-x@example.test"}, now, func(map[string]View) string { return id })
 				case 2:
@@ -249,4 +257,71 @@ func TestConcurrentUse(t *testing.T) {
 		})
 	}
 	wg.Wait()
+}
+
+func TestAnAnswerWithoutTheHeaderKeepsTheStoredReset(t *testing.T) {
+	s := New()
+	s.Observe("acct-a@example.test", withReset(nextWeek))
+
+	s.Observe("acct-a@example.test", Answer{})
+
+	if v := s.View("acct-a@example.test", now); v.Due || !v.Reset7d.Equal(nextWeek) {
+		t.Fatalf("View = %+v; want the reset %v kept and not due", v, nextWeek)
+	}
+}
+
+func TestAnAccountThatNeverSendsTheHeaderIsObservedOnce(t *testing.T) {
+	s := New()
+	var seen View
+	s.Pick([]string{"acct-a@example.test"}, now, pickFirst("acct-a@example.test", &seen))
+
+	s.Observe("acct-a@example.test", Answer{})
+
+	if v := s.View("acct-a@example.test", now.Add(time.Hour)); v.Due || !v.Reset7d.IsZero() {
+		t.Fatalf("View = %+v; want observed, not due, no reset", v)
+	}
+}
+
+func TestAPendingProbeExpiresAfterTheTimeout(t *testing.T) {
+	s := New()
+	var seen View
+	s.Pick([]string{"acct-a@example.test"}, now, pickFirst("acct-a@example.test", &seen))
+
+	if v := s.View("acct-a@example.test", now.Add(PendingTimeout-time.Second)); v.Due {
+		t.Fatal("due again inside the pending timeout")
+	}
+	s.Pick([]string{"acct-a@example.test"}, now.Add(PendingTimeout-time.Second), pickFirst("acct-a@example.test", &seen))
+	if seen.Due {
+		t.Fatal("a second pick inside the timeout probed the account again")
+	}
+	later := now.Add(PendingTimeout)
+	if v := s.View("acct-a@example.test", later); !v.Due {
+		t.Fatal("not due once the pending probe timed out")
+	}
+
+	s.Pick([]string{"acct-a@example.test"}, later, pickFirst("acct-a@example.test", &seen))
+	if !seen.Due {
+		t.Fatal("the pick after the timeout did not probe the account")
+	}
+	if v := s.View("acct-a@example.test", later.Add(PendingTimeout-time.Second)); v.Due {
+		t.Fatal("the new probe did not restart the timeout")
+	}
+}
+
+func TestAnAnswerInsideTheTimeoutClearsPending(t *testing.T) {
+	s := New()
+	var seen View
+	s.Pick([]string{"acct-a@example.test"}, now, pickFirst("acct-a@example.test", &seen))
+
+	s.Observe("acct-a@example.test", withReset(nextWeek))
+
+	if v := s.View("acct-a@example.test", now.Add(10*PendingTimeout)); v.Due {
+		t.Fatal("due after the timeout though the probe was answered")
+	}
+}
+
+func TestPendingTimeoutIsTwoMinutes(t *testing.T) {
+	if PendingTimeout != 2*time.Minute {
+		t.Fatalf("PendingTimeout = %v; want 2m", PendingTimeout)
+	}
 }

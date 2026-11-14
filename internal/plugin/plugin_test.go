@@ -187,9 +187,18 @@ func pickedID(t *testing.T, p *Plugin, request []byte) string {
 
 func pickRequest(t *testing.T, candidates ...pluginapi.SchedulerAuthCandidate) []byte {
 	t.Helper()
+	return pickRequestFor(t, "", candidates...)
+}
+
+// pickRequestFor is pickRequest with the host's request_path metadata set to path.
+func pickRequestFor(t *testing.T, path string, candidates ...pluginapi.SchedulerAuthCandidate) []byte {
+	t.Helper()
 	var req pluginapi.SchedulerPickRequest
 	if err := json.Unmarshal(readFixture(t, "pick_request.json"), &req); err != nil {
 		t.Fatal(err)
+	}
+	if path != "" {
+		req.Options.Metadata["request_path"] = path
 	}
 	if candidates != nil {
 		req.Candidates = candidates
@@ -201,7 +210,19 @@ func pickRequest(t *testing.T, candidates ...pluginapi.SchedulerAuthCandidate) [
 	return raw
 }
 
+// usage sends a usage record for authID. A zero reset sends no weekly-reset header.
 func usage(t *testing.T, p *Plugin, authID string, reset time.Time, status int) {
+	t.Helper()
+	header := ""
+	if !reset.IsZero() {
+		header = reset.Format(time.RFC3339)
+	}
+	usageWithHeader(t, p, authID, header, status)
+}
+
+// usageWithHeader sends a usage record whose weekly-reset header has the raw
+// value header, or no such header when header is empty.
+func usageWithHeader(t *testing.T, p *Plugin, authID, header string, status int) {
 	t.Helper()
 	var rec pluginapi.UsageRecord
 	if err := json.Unmarshal(readFixture(t, "usage_record.json"), &rec); err != nil {
@@ -209,8 +230,8 @@ func usage(t *testing.T, p *Plugin, authID string, reset time.Time, status int) 
 	}
 	rec.AuthID = authID
 	rec.ResponseHeaders = map[string][]string{}
-	if !reset.IsZero() {
-		rec.ResponseHeaders["Anthropic-Ratelimit-Unified-7d-Reset"] = []string{reset.Format(time.RFC3339)}
+	if header != "" {
+		rec.ResponseHeaders["Anthropic-Ratelimit-Unified-7d-Reset"] = []string{header}
 	}
 	if status != 0 {
 		rec.Failed = true
@@ -666,5 +687,78 @@ func TestRetestErrorsAreLoggedAsAWarning(t *testing.T) {
 	logs := host.logsWith("soonest-reset: retest")
 	if len(logs) != 1 || logs[0].level != "warn" || !strings.HasPrefix(logs[0].message, "soonest-reset: retest reset=0 probe=[] errors=reset "+acctA+": auth not found; reset "+acctB+": auth not found") {
 		t.Fatalf("retest logs = %+v; want one warning with both errors", logs)
+	}
+}
+
+func TestAHeaderlessFailureKeepsThePickOrder(t *testing.T) {
+	p, _, _ := newPlugin(t)
+	register(t, p, "")
+	usage(t, p, acctA, friday, 0)
+	usage(t, p, acctB, wednesday, 0)
+
+	for _, status := range []int{500, 529, 401} {
+		usage(t, p, acctB, time.Time{}, status)
+	}
+
+	if got := pickedID(t, p, pickRequest(t)); got != acctB {
+		t.Fatalf("picked %q; failures without the header wiped %q's reset", got, acctB)
+	}
+}
+
+func TestAPastResetHeaderClearsTheStoredReset(t *testing.T) {
+	p, host, _ := newPlugin(t)
+	register(t, p, "")
+	usage(t, p, acctA, friday, 0)
+	usage(t, p, acctB, wednesday, 0)
+
+	usageWithHeader(t, p, acctB, "2026-11-01T00:00:00Z", 0)
+
+	if got := pickedID(t, p, pickRequest(t)); got != acctA {
+		t.Fatalf("picked %q; want %q once %q's header said its reset had passed", got, acctA, acctB)
+	}
+	if logs := host.logsWith("soonest-reset: pick"); !strings.Contains(logs[0].message, "rule=soonest-reset") {
+		t.Fatalf("pick log %q; a cleared reset must not keep the account due", logs[0].message)
+	}
+}
+
+func TestAProbeWithoutAnAnswerIsTriedAgainAfterTheTimeout(t *testing.T) {
+	p, host, c := newPlugin(t)
+	register(t, p, "")
+	req := pickRequest(t, pluginapi.SchedulerAuthCandidate{ID: acctA, Provider: "claude", Priority: 5})
+
+	pickedID(t, p, req)
+	c.advance(time.Minute)
+	pickedID(t, p, req)
+	c.advance(time.Minute)
+	pickedID(t, p, req)
+
+	logs := host.logsWith("soonest-reset: pick")
+	rules := []string{}
+	for _, l := range logs {
+		rules = append(rules, strings.Fields(l.message)[3])
+	}
+	if want := []string{"rule=probe", "rule=soonest-reset", "rule=probe"}; !slices.Equal(rules, want) {
+		t.Fatalf("rules %v; want %v: the unanswered probe expires after two minutes", rules, want)
+	}
+}
+
+func TestATokenCountPickDoesNotSpendAProbe(t *testing.T) {
+	p, host, _ := newPlugin(t)
+	register(t, p, "")
+	usage(t, p, acctB, wednesday, 0)
+	candidates := []pluginapi.SchedulerAuthCandidate{
+		{ID: acctA, Provider: "claude", Priority: 5},
+		{ID: acctB, Provider: "claude"},
+	}
+
+	// The gateway publishes no usage record for /v1/messages/count_tokens.
+	counted := pickedID(t, p, pickRequestFor(t, "/v1/messages/count_tokens", candidates...))
+	next := pickedID(t, p, pickRequestFor(t, "/v1/messages", candidates...))
+
+	if counted != acctB {
+		t.Fatalf("token count picked %q; want %q by soonest reset, not a probe", counted, acctB)
+	}
+	if next != acctA || !strings.Contains(host.logsWith("soonest-reset: pick")[1].message, "rule=probe") {
+		t.Fatalf("next pick %q; want the unobserved %q still probed", next, acctA)
 	}
 }
