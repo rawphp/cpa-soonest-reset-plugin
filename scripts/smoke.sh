@@ -146,7 +146,16 @@ ask() {
 served() { curl -s "$upstream/served"; }
 picks() { grep -o "soonest-reset: pick .*" "$work/gateway.log" || true; }
 
-# 2. Two probes, then the soonest weekly reset. The pick lines come from
+# 2. A token count goes through account selection but publishes no usage
+#    record, so it must not use up a probe.
+code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$gw/v1/messages/count_tokens" \
+	-H "x-api-key: smoke-client-key" -H "content-type: application/json" -H "anthropic-version: 2023-06-01" \
+	-d '{"model":"claude-smoke","messages":[{"role":"user","content":"hi"}]}')
+[[ $code == 200 ]] || fail "token count answered $code"
+picks | sed -n '1p' | grep -q "rule=soonest-reset reset_7d=none" || fail "the token count pick was not a plain pick: $(picks)"
+pass "a token count is picked without spending a probe"
+
+# 3. Two probes, then the soonest weekly reset. The pick lines come from
 #    scheduler.pick; the reset time in them comes from usage.handle.
 for i in 1 2 3 4; do
 	code=$(ask)
@@ -158,12 +167,12 @@ import json, sys
 s = json.loads(sys.argv[1])
 sys.exit(0 if sorted(s[:2]) == ["sk-smoke-a", "sk-smoke-b"] and s[2:] == ["sk-smoke-b", "sk-smoke-b"] else 1)
 PY
-picks | sed -n '1,2p' | grep -c "rule=probe reset_7d=none" | grep -qx 2 || fail "first two picks were not probes: $(picks)"
-picks | sed -n '3,4p' | grep -c "rule=soonest-reset reset_7d=$(utc "$reset_b")" | grep -qx 2 ||
-	fail "picks 3-4 did not follow the soonest reset $(utc "$reset_b"): $(picks)"
+picks | sed -n '2,3p' | grep -c "rule=probe reset_7d=none" | grep -qx 2 || fail "first two picks were not probes: $(picks)"
+picks | sed -n '4,5p' | grep -c "rule=soonest-reset reset_7d=$(utc "$reset_b")" | grep -qx 2 ||
+	fail "picks 4-5 did not follow the soonest reset $(utc "$reset_b"): $(picks)"
 pass "scheduler and usage capabilities: probes, then the soonest reset"
 
-# 3. A 429 on the soonest account moves the same request to the other one.
+# 4. A 429 on the soonest account moves the same request to the other one.
 curl -sf -X POST "$upstream/control" -d '{"key":"sk-smoke-b","status":429}' >/dev/null
 code=$(ask)
 [[ $code == 200 ]] || fail "request after the 429 answered $code"
@@ -176,7 +185,7 @@ sys.exit(0 if json.loads(sys.argv[1])[4:] == ["sk-smoke-b", "sk-smoke-a", "sk-sm
 PY
 pass "a 429 fails over to the next account, and the cooled account is skipped"
 
-# 4. The first retest runs at the ticker's first tick, a minute after
+# 5. The first retest runs at the ticker's first tick, a minute after
 #    registration, though retest_minutes is 60. It resets the Claude OAuth
 #    account through host.auth.list and host.routing.reset_cooldown.
 echo "waiting for the first retest (up to 90s)"
